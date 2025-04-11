@@ -43,6 +43,7 @@ def run_rs_analysis(
         automatic_epoch_rejection=False,
         create_report=True,
         saving_dir=None,
+        overwrite = False,
         verbose="ERROR"
         ):
     
@@ -263,7 +264,7 @@ def run_rs_analysis(
                                                 )
         
         write_inverse_operator(fname=saving_dir / "operator-inv.fif",
-                                inv=inverse_operator)
+                                inv=inverse_operator, overwrite = overwrite)
 
     ## create a report
     if create_report:
@@ -303,6 +304,7 @@ def run_erp_analysis(
         subject_id,
         subjects_dir=None,
         paradigm="gpias",
+        session="",
         source_analysis=True,
         events=None,
         mri=False,
@@ -312,6 +314,7 @@ def run_erp_analysis(
         automatic_epoch_rejection=False,
         create_report=True,
         saving_dir=None,
+        overwrite = False,
         verbose="ERROR"
         ):
     
@@ -430,7 +433,7 @@ def run_erp_analysis(
                 events[:, 0] = events[:, 0] - shift * info["sfreq"]
                 baseline = None
             
-            case "omi" | "xxxxx" | "xxxxy":
+            case "oddball" | "omi" | "xxxxx" | "xxxxy":
                 baseline = (None, 0)
 
             case "regularity" | "teas":
@@ -444,7 +447,8 @@ def run_erp_analysis(
                     tmin=-0.2,
                     tmax=0.5,
                     reject_by_annotation=True,
-                    baseline=baseline
+                    baseline=baseline,
+                    event_repeated='drop'
                     )
     del raw
 
@@ -458,6 +462,12 @@ def run_erp_analysis(
 
     if saving_dir == None:
         saving_dir = subjects_dir / subject_id / "EEG" / f"{paradigm}"
+
+        if paradigm == "oddball":
+            saving_dir = subjects_dir / subject_id / "EEG" / f"{paradigm}" / session
+
+            if overwrite:
+                saving_dir.mkdir(exist_ok=True)
 
     ## drop and save epochs
     if not automatic_epoch_rejection == False:
