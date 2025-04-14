@@ -122,7 +122,9 @@ def preprocessing(
     match site:
         case "Austin":
             raws = [read_raw(fname_paradigm / fname) for fname in fnames if fname.endswith(".mff")]
+            #raws = [read_raw(fname_paradigm / fname) for fname in fnames if fname.endswith(".edf")]
             raw = concatenate_raws(raws)
+            raw.rename_channels(mapping=lambda s: s[:1] + s[4:])
             raw.drop_channels(ch_names="VREF")
             montage = make_standard_montage("GSN-HydroCel-64_1.0")
 
