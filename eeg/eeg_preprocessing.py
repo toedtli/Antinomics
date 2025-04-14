@@ -32,6 +32,7 @@ def preprocessing(
         manual_ica_removal=False,
         ssp_eog=True,
         ssp_ecg=True,
+        create_dirs=True,
         create_report=True,
         saving_dir=None,
         verbose="ERROR"
@@ -328,6 +329,9 @@ def preprocessing(
 
         if saving_dir == None:
             saving_dir = subjects_dir / subject_id / "EEG" / f"{paradigm}"
+        if create_dirs:
+            saving_dir.mkdir(exist_ok=True)
+    
         report.save(fname=saving_dir.parent / "reports" / f"{paradigm}.h5", open_browser=False, overwrite=True)
 
     if not saving_dir is False:
