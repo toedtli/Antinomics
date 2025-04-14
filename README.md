@@ -10,4 +10,4 @@ then start jupyter lab
 
     jupyter lab .
 
-
+and select the kernel "tide".

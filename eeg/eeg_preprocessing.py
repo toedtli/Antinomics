@@ -20,6 +20,8 @@ from mne.preprocessing import (ICA,
                                 compute_proj_ecg,
                                 compute_proj_eog
                                 )
+import ipdb
+from mne.io import read_raw_curry
 
 def preprocessing(
         subject_id,
@@ -119,9 +121,9 @@ def preprocessing(
 
     match site:
         case "Austin":
-            raws = [read_raw(fname_paradigm / fname) for fname in fnames if fname.endswith(".edf")]
+            raws = [read_raw(fname_paradigm / fname) for fname in fnames if fname.endswith(".mff")]
             raw = concatenate_raws(raws)
-            raw.rename_channels(mapping=lambda s: s[:1] + s[4:])
+            raw.drop_channels(ch_names="VREF")
             montage = make_standard_montage("GSN-HydroCel-64_1.0")
 
         case "Dublin":
@@ -134,6 +136,11 @@ def preprocessing(
             raise NotImplementedError
 
         case "Illinois": # curry ** last thing to check **
+            #[os.rename(fname, f"{fname[:-3]}.dpa") for fname in fnames if fname.endswith(".dpo")]
+            #raws = [read_raw(fname_paradigm / fname) for fname in fnames if fname.endswith(".cdt")]
+            ipdb.set_trace()
+#            read_raw_curry(fname)
+            raws = [read_raw_curry(fname_paradigm / fname) for fname in fnames if fname.endswith(".edf")]
             raise NotImplementedError
             
         case "Regensburg":

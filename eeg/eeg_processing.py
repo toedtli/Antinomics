@@ -5,6 +5,7 @@ import warnings
 from pathlib import Path
 from tqdm import tqdm
 import time
+import ipdb
 
 import numpy as np
 from scipy.signal import find_peaks
@@ -32,6 +33,7 @@ from mne import (set_log_level,
 
 def run_rs_analysis(
         subject_id,
+        paradigm,
         subjects_dir=None,
         visit=1,
         event_ids=None,
@@ -43,8 +45,8 @@ def run_rs_analysis(
         automatic_epoch_rejection=False,
         create_report=True,
         saving_dir=None,
-        overwrite = False,
-        verbose="ERROR"
+        verbose="ERROR",
+        overwrite=False
         ):
     
     """ Sensor and source space analysis of the preprocessed resting-state eeg recordings from BrainVision device.
@@ -118,10 +120,11 @@ def run_rs_analysis(
     if subjects_fs_dir == None:
         subjects_fs_dir = "/Applications/freesurfer/7.4.1/subjects"
 
-    if visit:
+    if visit and 'rest' in paradigm:
         paradigm = f"rest_v{visit}"
     else:
-        paradigm = f"rest"
+        if 'rest' in paradigm:
+            paradigm = f"rest"
     fname = subjects_dir / subject_id / "EEG" / paradigm / "raw_prep.fif"
     raw = read_raw_fif(fname, preload=True)
     info = raw.info
@@ -130,6 +133,7 @@ def run_rs_analysis(
     progress.update(1)
 
     ## be cautious
+    ipdb.set_trace()
     events, _ = events_from_annotations(raw)
     if event_ids == None: # zurich device
 
@@ -203,9 +207,9 @@ def run_rs_analysis(
         if automatic_epoch_rejection == "pyriemann":
             raise NotImplementedError
 
-    epochs_eo.save(fname=saving_dir / f"epochs-eo-epo.fif", overwrite=True)
+    epochs_eo.save(fname=saving_dir / f"epochs-eo-epo.fif", overwrite=overwrite)
     if both_conditions:
-        epochs_ec.save(fname=saving_dir / f"epochs-ec-epo.fif", overwrite=True)
+        epochs_ec.save(fname=saving_dir / f"epochs-ec-epo.fif", overwrite=overwrite)
             
     if source_analysis:
         if mri:
@@ -264,7 +268,7 @@ def run_rs_analysis(
                                                 )
         
         write_inverse_operator(fname=saving_dir / "operator-inv.fif",
-                                inv=inverse_operator, overwrite = overwrite)
+                                inv=inverse_operator,overwrite=overwrite)
 
     ## create a report
     if create_report:
