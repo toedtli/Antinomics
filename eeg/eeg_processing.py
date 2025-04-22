@@ -3,13 +3,16 @@
 
 import warnings
 from pathlib import Path
+import yaml
 from tqdm import tqdm
 import time
 
 import numpy as np
 from scipy.signal import find_peaks
-from autoreject import AutoReject
 import matplotlib.pyplot as plt
+from autoreject import AutoReject
+from pyriemann.clustering import Potato
+from pyriemann.estimation import Covariances
 
 from mne.io import read_raw_fif
 from mne.coreg import Coregistration
@@ -29,22 +32,16 @@ from mne import (set_log_level,
                 open_report,
                 concatenate_epochs
                 )
+from .tools import load_config
 
 def run_rs_analysis(
         subject_id,
+        site="Zuerich",
         subjects_dir=None,
-        visit=1,
-        event_ids=None,
-        source_analysis=True,
-        precomute_inv=False,
+        overwrite=False,
+        config_file="preprocessing-config.yaml",
         mri=False,
-        subjects_fs_dir=None,
-        manual_data_scroll=False,
-        automatic_epoch_rejection=False,
-        create_report=True,
-        saving_dir=None,
-        overwrite = False,
-        verbose="ERROR"
+        **kwargs
         ):
     
     """ Sensor and source space analysis of the preprocessed resting-state eeg recordings from BrainVision device.
@@ -68,8 +65,6 @@ def run_rs_analysis(
                 ├── paradigm_1/
                 ├── paradigm_2/
                 ├── ...
-        visit : int
-            The visit number of the resting state paradigm. 
         event_ids: dict | None
             If dict, the keys should be the eyes_close and eyes_open (respectively) and the values should be integar.
             If None, the first event (not new segment) will be assumed to be eyes closed trigger.
@@ -97,6 +92,19 @@ def run_rs_analysis(
             used for other purposes.
         """
     
+    ## get values from config file
+    config = load_config(site, config_file)
+    config.update(kwargs)
+    psd_check = config.get("psd_check", True)
+    manual_data_scroll = config.get("manual_data_scroll", True)
+    run_ica = config.get("run_ica", False)
+    manual_ica_removal = config.get("manual_ica_removal", False)
+    ssp_eog = config.get("ssp_eog", True)
+    mri = config.get("mri", False) 
+    ssp_ecg = config.get("ssp_ecg", True)
+    create_report = config.get("create_report", True)
+    verbose = config.get("verbose", "ERROR")
+
     set_log_level(verbose=verbose)
     total = 10 if mri else 8
     progress = tqdm(total=total,
@@ -115,13 +123,7 @@ def run_rs_analysis(
     else:
         subjects_dir = Path(subjects_dir)
 
-    if subjects_fs_dir == None:
-        subjects_fs_dir = "/Applications/freesurfer/7.4.1/subjects"
-
-    if visit:
-        paradigm = f"rest_v{visit}"
-    else:
-        paradigm = f"rest"
+    paradigm = f"rest_v{visit}"
     fname = subjects_dir / subject_id / "EEG" / paradigm / "raw_prep.fif"
     raw = read_raw_fif(fname, preload=True)
     info = raw.info
@@ -201,11 +203,17 @@ def run_rs_analysis(
             epochs_eo = ar.transform(epochs_eo)
 
         if automatic_epoch_rejection == "pyriemann":
-            raise NotImplementedError
+            train_covs = int(0.7 * len(epochs_noisy))  # nb of matrices to train the potato (70%)
+            train_set = [random.randint(0, len(epochs_noisy)) for _ in range(train_covs)]
+            covs = Covariances(estimator="lwf").transform(epochs_noisy.get_data())
+            potato = Potato(metric="riemann", threshold=z_th, n_iter_max=100).fit(covs[train_set])
+            p_center = potato._mdm.covmeans_[0]
+            p_labels = potato.predict(covs)
+            bad_idxs = np.where(p_labels == 0)[0]
 
-    epochs_eo.save(fname=saving_dir / f"epochs-eo-epo.fif", overwrite=True)
+    epochs_eo.save(fname=saving_dir / f"epochs-eo-epo.fif", overwrite=overwrite)
     if both_conditions:
-        epochs_ec.save(fname=saving_dir / f"epochs-ec-epo.fif", overwrite=True)
+        epochs_ec.save(fname=saving_dir / f"epochs-ec-epo.fif", overwrite=overwrite)
             
     if source_analysis:
         if mri:
@@ -264,7 +272,7 @@ def run_rs_analysis(
                                                 )
         
         write_inverse_operator(fname=saving_dir / "operator-inv.fif",
-                                inv=inverse_operator, overwrite = overwrite)
+                                inv=inverse_operator,overwrite=overwrite)
 
     ## create a report
     if create_report:
@@ -304,7 +312,6 @@ def run_erp_analysis(
         subject_id,
         subjects_dir=None,
         paradigm="gpias",
-        session="",
         source_analysis=True,
         events=None,
         mri=False,
@@ -314,7 +321,6 @@ def run_erp_analysis(
         automatic_epoch_rejection=False,
         create_report=True,
         saving_dir=None,
-        overwrite = False,
         verbose="ERROR"
         ):
     
@@ -433,7 +439,7 @@ def run_erp_analysis(
                 events[:, 0] = events[:, 0] - shift * info["sfreq"]
                 baseline = None
             
-            case "oddball" | "omi" | "xxxxx" | "xxxxy":
+            case "omi" | "xxxxx" | "xxxxy":
                 baseline = (None, 0)
 
             case "regularity" | "teas":
@@ -447,8 +453,7 @@ def run_erp_analysis(
                     tmin=-0.2,
                     tmax=0.5,
                     reject_by_annotation=True,
-                    baseline=baseline,
-                    event_repeated='drop'
+                    baseline=baseline
                     )
     del raw
 
@@ -462,12 +467,6 @@ def run_erp_analysis(
 
     if saving_dir == None:
         saving_dir = subjects_dir / subject_id / "EEG" / f"{paradigm}"
-
-        if paradigm == "oddball":
-            saving_dir = subjects_dir / subject_id / "EEG" / f"{paradigm}" / session
-
-            if overwrite:
-                saving_dir.mkdir(exist_ok=True)
 
     ## drop and save epochs
     if not automatic_epoch_rejection == False:
@@ -642,34 +641,6 @@ def _detect_gpias_events(
     events = _detect_peaks(pk_heights, peak_idxs, stim_ch, times, height_limits, events_dict, stim_key, plot_peaks=plot_peaks)
     return events, events_dict
 
-def _detect_peaks(pk_heights,
-                peak_idxs,
-                stim_ch,
-                times,
-                height_limits,
-                events_dict,
-                stim_key,
-                plot_peaks=True
-                ):
-    events = []
-    if plot_peaks:
-        fig, ax = plt.subplots(1, 1, figsize=(12, 6))
-        ax.plot(times, stim_ch)
-        ax.set_title(stim_key)
-        
-    for key, (lower, upper) in height_limits.items():
-        pk_idxs = np.where((pk_heights >= lower) & (pk_heights < upper))[0]
-        sub_events = np.zeros(shape=(len(pk_idxs), 3), dtype=int)
-        sub_events[:, 0] = times[peak_idxs[pk_idxs]] * 250
-        sub_events[:, 1] = 0
-        sub_events[:, 2] = events_dict[f"{key[:4]}_{stim_key[3:]}"]
-        events.append(sub_events) 
 
-        if plot_peaks:
-            ax.scatter(times[peak_idxs[pk_idxs]], pk_heights[pk_idxs])
 
-        if not len(pk_idxs) in [25, 100]:
-            warnings.warn(f"\033[91mThe number of detected triggeres for {key} in {stim_key} is " \
-                            "not as expected (25 or 100), its {len(pk_idxs)}, try adjusting the threshold!", UserWarning) 
-            
-    return np.concatenate(np.array(events), axis=0) 
+
